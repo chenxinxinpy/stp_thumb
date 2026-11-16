@@ -1,0 +1,22 @@
+=== 路径A: IThumbnailProvider + IInitializeWithStream ===
+  [1] 500106-00109-20261106.stp        256x256 前景 54.4% hash=8DDEC66D 16303ms
+  [2] 500406-00167-261015.stp          256x256 前景 54.4% hash=8DDEC66D 9ms
+  [3] duzi-shang.stp                   256x256 前景 54.4% hash=8DDEC66D 25ms
+  [4] duzi-xia.stp                     256x256 前景 54.4% hash=8DDEC66D 22ms
+=== 路径B: IThumbnailCache（资源管理器填充缩略图缓存所走的路）===
+  [1] 500106-00109-20261106.stp        256x256 前景 72.9% hash=4505E128 259ms
+  [2] 500406-00167-261015.stp          256x256 前景 72.9% hash=4505E128 26ms
+  [3] duzi-shang.stp                   256x256 前景 72.9% hash=4505E128 20ms
+  [4] duzi-xia.stp                     256x256 前景 72.9% hash=4505E128 21ms
+COLLIDE provider: 500106-00109-20261106.stp == 500406-00167-261015.stp (hash=8DDEC66D)
+COLLIDE shell: 500106-00109-20261106.stp == 500406-00167-261015.stp (hash=4505E128)
+COLLIDE provider: 500106-00109-20261106.stp == duzi-shang.stp (hash=8DDEC66D)
+COLLIDE shell: 500106-00109-20261106.stp == duzi-shang.stp (hash=4505E128)
+COLLIDE provider: 500106-00109-20261106.stp == duzi-xia.stp (hash=8DDEC66D)
+COLLIDE shell: 500106-00109-20261106.stp == duzi-xia.stp (hash=4505E128)
+COLLIDE provider: 500406-00167-261015.stp == duzi-shang.stp (hash=8DDEC66D)
+COLLIDE shell: 500406-00167-261015.stp == duzi-shang.stp (hash=4505E128)
+COLLIDE provider: 500406-00167-261015.stp == duzi-xia.stp (hash=8DDEC66D)
+COLLIDE shell: 500406-00167-261015.stp == duzi-xia.stp (hash=4505E128)
+COLLIDE provider: duzi-shang.stp == duzi-xia.stp (hash=8DDEC66D)
+COLLIDE shell: duzi-shang.stp == duzi-xia.stp (hash=4505E128)
