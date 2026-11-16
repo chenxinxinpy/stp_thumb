@@ -1,0 +1,26 @@
+# 第三方依赖与工具链（体积大，按文档自行拉取）
+_deps/
+_toolchain/
+native/_toolchain/
+
+# 构建产物（不入库）
+*.o
+*.obj
+*.lib
+*.exp
+*.ilk
+*.pdb
+*.exe
+*.dll
+*.bmp
+native/msvc/
+native/msvc-occt/
+native/occtbuild/
+native/out/
+out/
+dist/runtime/
+
+# 临时文件
+*.log
+!before.log
+!after.log
