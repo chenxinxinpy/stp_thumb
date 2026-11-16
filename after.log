@@ -1,0 +1,12 @@
+=== 路径A: IThumbnailProvider + IInitializeWithStream ===
+  [1] 500106-00109-20261106.stp        256x256 前景 54.4% hash=8DDEC66D 18739ms
+  [2] 500406-00167-261015.stp          256x256 前景 36.9% hash=B3EE0B00 3217ms
+  [3] duzi-shang.stp                   256x256 前景 39.0% hash=B416B7FC 23415ms
+  [4] duzi-xia.stp                     256x256 前景 31.8% hash=40D2FB98 30240ms
+=== 路径B: IThumbnailCache（资源管理器填充缩略图缓存所走的路）===
+  [1] 500106-00109-20261106.stp        256x256 前景 54.4% hash=8DDEC66D 123ms
+  [2] 500406-00167-261015.stp          256x256 前景 36.9% hash=B3EE0B00 10ms
+  [3] duzi-shang.stp                   256x256 前景 39.0% hash=B416B7FC 10ms
+  [4] duzi-xia.stp                     256x256 前景 31.8% hash=40D2FB98 11ms
+结果: PASS — 4 个文件的缩略图互不相同（provider 与 shell 两条路径均通过）
+退出码=0
