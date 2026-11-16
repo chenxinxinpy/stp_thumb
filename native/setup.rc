@@ -1,0 +1,3 @@
+// 把编译好的 DLL 与 CLI 内嵌进安装器，实现单文件、零外部依赖交付
+101 RCDATA "msvc-occt\\StepThumb.dll"
+102 RCDATA "msvc-occt\\step2png.exe"
