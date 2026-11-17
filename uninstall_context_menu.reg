@@ -1,0 +1,7 @@
+Windows Registry Editor Version 5.00
+
+; 【新增】卸载右键菜单 + 删除安装目录（先关掉查看器再运行）
+[-HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.stp\shell\STPViewer]
+[-HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.step\shell\STPViewer]
+[-HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.stl\shell\STPViewer]
+[-HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.stla\shell\STPViewer]
