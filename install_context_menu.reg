@@ -1,0 +1,29 @@
+Windows Registry Editor Version 5.00
+
+; 【新增】为 .stp/.step/.stl/.stla 添加「用三维模型查看器打开」右键菜单
+; 作用域：HKEY_CURRENT_USER（当前用户，无需管理员权限）
+; 用 SystemFileAssociations 而非 Classes\* ，只影响指定扩展名
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.stp\shell\STPViewer]
+@="用三维模型查看器打开"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.stp\shell\STPViewer\command]
+@="\"C://Users//CHENXINXIN//AppData//Local//Programs//STPViewer//STPViewer.exe/" \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.step\shell\STPViewer]
+@="用三维模型查看器打开"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.step\shell\STPViewer\command]
+@="\"C://Users//CHENXINXIN//AppData//Local//Programs//STPViewer//STPViewer.exe/" \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.stl\shell\STPViewer]
+@="用三维模型查看器打开"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.stl\shell\STPViewer\command]
+@="\"C://Users//CHENXINXIN//AppData//Local//Programs//STPViewer//STPViewer.exe/" \"%1\""
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.stla\shell\STPViewer]
+@="用三维模型查看器打开"
+
+[HKEY_CURRENT_USER\Software\Classes\SystemFileAssociations\.stla\shell\STPViewer\command]
+@="\"C://Users//CHENXINXIN//AppData//Local//Programs//STPViewer//STPViewer.exe/" \"%1\""
