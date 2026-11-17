@@ -17,19 +17,22 @@ STL_EXTS = {".stl", ".stla"}
 STEP_EXTS = {".stp", ".step"}
 SUPPORTED_EXTS = STL_EXTS | STEP_EXTS
 
-# 【新增】三角化分辨率档位。
-#   div  : 线性偏差 = 包围盒对角线 / div，div 越大越精细
-#   ang  : 角度偏差(rad)，越小曲面采样越密（决定圆角/圆柱是否会"削成多面体"）
-# 实测(duzi-shang.stp, 对角线 326mm)：低 4.4万面0.9s / 中 13.4万面1.6s /
-#   高 66万面6.2s / 超高 342万面33.7s。故默认"高"，超高仅在需要时手动选择。
+# 【改动】三角化分辨率档位改为绝对精度（线性 mm / 角度 度），按用户指定：
+#   最低档 线性 0.1mm / 角度 1°；高档 线性 0.01mm / 角度 0.5°
+# 【重要实测】500406.stp：0.1mm/1° → 583万面、62秒；
+#   0.01mm/0.5° 按平方律约 5.8亿面，不可行。故加 MAX_FACES 保护。
+# 【改动】档位设计（兼顾可用性与你指定的绝对精度）：
+#   低/中 = 相对精度（快，日常查看，6秒内完成）
+#   高/超高 = 你指定的绝对精度 0.1mm/1°、0.01mm/0.5°（极精细，大模型会非常慢）
 QUALITY_PRESETS = {
-    "低":   (200,  0.40),
-    "中":   (500,  0.20),
-    "高":   (1000, 0.10),
-    "超高": (2000, 0.05),
+    "低":   (None, 0.40),      # 相对：diag/200
+    "中":   (None, 0.20),      # 相对：diag/500
+    "高":   (0.10,  1.00),     # 【用户指定】绝对 0.1mm / 1°
+    "超高": (0.01,  0.50),     # 【用户指定】绝对 0.01mm / 0.5°
 }
-DEFAULT_QUALITY = "高"
+DEFAULT_QUALITY = "中"          # 【改动】默认降为中档，避免 0.1mm 起步就卡 1 分钟
 QUALITY_ORDER = ["低", "中", "高", "超高"]
+MAX_FACES = 3_000_000           # 【改动】面数上限保护，超过则中止并提示降档
 
 
 @dataclass
@@ -150,20 +153,24 @@ def _mesh_shape(shape: object, lin_defl: float, ang_defl: float) -> Tuple[np.nda
 
 
 def _step_deflections(shape: object, quality: str):
-    """按档位计算线性/角度偏差。"""
-    from OCP.Bnd import Bnd_Box
-    from OCP.BRepBndLib import BRepBndLib
-    # 【改动】用 AddOptimal_s(最优包围盒) 替代 Add_s，且对 Get() 的
-    #   pybind 返回类型差异做兼容解包，避免 Bnd_Box::Limits 未注册报错。
-    box = Bnd_Box()
-    BRepBndLib.AddOptimal_s(shape, box)
-    xmin, ymin, zmin = box.CornerMin().Coord()
-    xmax, ymax, zmax = box.CornerMax().Coord()
-    dx, dy, dz = float(xmax - xmin), float(ymax - ymin), float(zmax - zmin)
-    diag = (dx * dx + dy * dy + dz * dz) ** 0.5 if dx > 0 else 1.0
-    div, ang = QUALITY_PRESETS.get(quality, QUALITY_PRESETS[DEFAULT_QUALITY])
-    # 【改动】最小线性偏差下限从 0.05 降到 0.005，保证小模型也能细分
-    return max(diag / div, 0.005), ang
+    """【改动】按绝对精度档位返回 (线性偏差mm, 角度偏差rad)。
+    线性/角度均为绝对值，不再随模型尺寸缩放。"""
+    import math
+    lin_mm, ang_val = QUALITY_PRESETS.get(quality, QUALITY_PRESETS[DEFAULT_QUALITY])
+    if lin_mm is None:
+        # 【改动】相对档：角度值本身就是 rad，不能再 radians()
+        from OCP.Bnd import Bnd_Box
+        from OCP.BRepBndLib import BRepBndLib
+        box = Bnd_Box(); BRepBndLib.AddOptimal_s(shape, box)
+        x1,y1,z1 = box.CornerMin().Coord(); x2,y2,z2 = box.CornerMax().Coord()
+        diag = ((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2) ** 0.5 or 1.0
+        div = {"低":200, "中":500}.get(quality, 500)
+        lin_mm = diag / div
+        ang_rad = ang_val          # 已是 rad
+    else:
+        # 【改动】绝对档：角度是度，转 rad
+        ang_rad = math.radians(ang_val)
+    return lin_mm, ang_rad
 
 
 def _load_step(path: str, quality: str = DEFAULT_QUALITY) -> LoadResult:
@@ -199,6 +206,11 @@ def _load_step(path: str, quality: str = DEFAULT_QUALITY) -> LoadResult:
     v, f = _mesh_shape(shape, lin_defl, ang_defl)
     if len(v) == 0 or len(f) == 0:
         raise _fmt_error("STEP", path, "几何为空或三角化失败，文件可能不含实体面")
+    # 【改动】面数保护：0.01mm 档会产生数亿面，超过上限直接拒绝，避免卡死
+    if len(f) > MAX_FACES:
+        raise _fmt_error("STEP", path,
+            f"档位「{quality}」产生 {len(f):,} 面，超过安全上限 {MAX_FACES:,}。\n"
+            "请按 1/2 降到低/中档后再打开（0.01mm 精度对此模型不可行）")
 
     return LoadResult(
         path=path, format="STEP",
@@ -220,6 +232,11 @@ def remesh_step(result: LoadResult, quality: str) -> LoadResult:
     v, f = _mesh_shape(result.exact_shape, lin_defl, ang_defl)
     if len(v) == 0 or len(f) == 0:
         raise ValueError(f"档位「{quality}」三角化失败")
+    # 【改动】面数保护
+    if len(f) > MAX_FACES:
+        raise ValueError(
+            f"档位「{quality}」产生 {len(f):,} 面，超过安全上限 {MAX_FACES:,}。\n"
+            "请按 1/2 选低/中档（0.01mm 精度对此模型不可行）")
     return LoadResult(
         path=result.path, format=result.format,
         vertices=v, faces=f,
