@@ -27,13 +27,16 @@ from vispy.scene.visuals import Mesh, Text
 from vispy.scene.cameras import TurntableCamera
 
 from model_loader import load_model, remesh_step, LoadResult, QUALITY_ORDER, DEFAULT_QUALITY
+# 【改动】STP 加载默认用「超高」档，避免三角面片失真（STL 面数由文件决定，无法细分）
+STEP_LOAD_QUALITY = "超高"
 from analysis import bounding_box, estimate_thickness, ThicknessResult
 
 BG = (247/255, 250/255, 252/255, 1.0)
 # 【改动】VisPy 默认字体不含中文，指定 Windows 黑体
 CN_FONT = "黑体"        # VisPy face 用系统注册的字体家族名（中文名）
+# 【改动】首个预设改为亮蓝色
 COLOR_PRESETS = [
-    (0.62, 0.78, 0.98, 1.0),   # 蓝
+    (0.30, 0.62, 1.00, 1.0),   # 亮蓝（原 0.62,0.78,0.98）
     (0.95, 0.62, 0.35, 1.0),   # 橙
     (0.45, 0.82, 0.60, 1.0),   # 绿
     (0.85, 0.55, 0.75, 1.0),   # 粉
@@ -62,7 +65,8 @@ class ViewerCanvas(scene.SceneCanvas):
 
         self._info_text = Text(
             "尚未加载模型\n按 O 打开文件，或把 .stp / .stl 拖到窗口",
-            pos=(14, 12), color=(0.15, 0.18, 0.22), font_size=12,
+            pos=(14, 12), color=(0.15, 0.18, 0.22), font_size=13,
+            line_height=1.6,          # 【改动】中文行高 1.1→1.6，避免行间重叠
             face=CN_FONT,
             anchor_x="left", anchor_y="top", parent=self.scene,
         )
@@ -70,6 +74,7 @@ class ViewerCanvas(scene.SceneCanvas):
             "左键旋转 · 右键平移 · 滚轮缩放 · F 适配视图\n"
             "O 打开 · C 换色 · 1/2/3/4 分辨率 · R 重载",
             pos=(14, -12), color=(0.45, 0.48, 0.52), font_size=11,
+            line_height=1.5,          # 【改动】中文行高加大
             face=CN_FONT,
             anchor_x="left", anchor_y="bottom", parent=self.scene,
         )
@@ -89,12 +94,25 @@ class ViewerCanvas(scene.SceneCanvas):
             th_line = (f"壁厚：{th.label}  最小 {th.min:.2f} / 中位 {th.median:.2f} / "
                        f"最大 {th.max:.2f} / 均值 {th.mean:.2f} mm")
         self._info_text.color = (0.15, 0.18, 0.22)
+        # 【改动】缩短每行文字、明确换行，配合 line_height=1.6 防重叠
         self._info_text.text = (
             f"文件：{os.path.basename(r.path)}\n"
-            f"格式：{r.format}    三角面：{len(r.faces):,}    分辨率档位：{q}\n"
-            f"包围盒：长 {sz[0]:.2f} × 宽 {sz[1]:.2f} × 高 {sz[2]:.2f} mm\n"
+            f"格式：{r.format}   三角面：{len(r.faces):,}   档位：{q}\n"
+            f"包围盒：{sz[0]:.2f} × {sz[1]:.2f} × {sz[2]:.2f} mm（长×宽×高）\n"
             f"{th_line}"
         )
+
+    def _apply_lighting(self):
+        """【改动】提亮背光面：环境光 0.25→0.65，
+        漫反射 0.8 / 高光 0.25 保持，保留自然光影层次。"""
+        if self._mesh is None or not hasattr(self._mesh, "shading_filter"):
+            return
+        sf = self._mesh.shading_filter
+        if sf is None:
+            return
+        sf.ambient_light = (1, 1, 1, 0.65)
+        sf.diffuse_light = (1, 1, 1, 0.80)
+        sf.specular_light = (1, 1, 1, 0.25)
 
     def _next_color(self):
         self._color_index = (self._color_index + 1) % len(COLOR_PRESETS)
@@ -104,7 +122,13 @@ class ViewerCanvas(scene.SceneCanvas):
     # ------------------------------------------------------------------ 加载
     def load_path(self, path: str):
         try:
-            r = load_model(path, quality=self._quality)
+            # 【改动】STEP 强制超高分辨率加载；STL 用当前档位（对 STL 无意义）
+            ext = os.path.splitext(path)[1].lower()
+            load_q = STEP_LOAD_QUALITY if ext in (".stp", ".step") else self._quality
+            r = load_model(path, quality=load_q)
+            # 同步内部档位状态，保证后续切换从当前实际档位开始
+            if ext in (".stp", ".step"):
+                self._quality = load_q
         except Exception as e:
             self._info_text.color = (0.85, 0.15, 0.15)
             self._info_text.text = f"加载失败：{path}\n{e}"
@@ -119,6 +143,7 @@ class ViewerCanvas(scene.SceneCanvas):
             shading="smooth",           # GPU Blinn-Phong 光照
             parent=self._view.scene,
         )
+        self._apply_lighting()
         self.fit()
         self._update_text()
 
