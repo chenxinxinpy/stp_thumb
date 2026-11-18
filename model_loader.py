@@ -21,18 +21,22 @@ SUPPORTED_EXTS = STL_EXTS | STEP_EXTS
 #   最低档 线性 0.1mm / 角度 1°；高档 线性 0.01mm / 角度 0.5°
 # 【重要实测】500406.stp：0.1mm/1° → 583万面、62秒；
 #   0.01mm/0.5° 按平方律约 5.8亿面，不可行。故加 MAX_FACES 保护。
-# 【改动】档位设计（兼顾可用性与你指定的绝对精度）：
-#   低/中 = 相对精度（快，日常查看，6秒内完成）
-#   高/超高 = 你指定的绝对精度 0.1mm/1°、0.01mm/0.5°（极精细，大模型会非常慢）
+# 【改动】所有档位统一为绝对精度 0.1mm / 1°（用户要求不降精度）。
+#   实测 500406.stp：583万面/193秒；靠磁盘缓存把重复加载降到秒级。
+#   0.01mm 会达 5.8 亿面、内存 20GB+，超出机器可用内存，故不采用。
 QUALITY_PRESETS = {
-    "低":   (None, 0.40),      # 相对：diag/200
-    "中":   (None, 0.20),      # 相对：diag/500
-    "高":   (0.10,  1.00),     # 【用户指定】绝对 0.1mm / 1°
-    "超高": (0.01,  0.50),     # 【用户指定】绝对 0.01mm / 0.5°
+    "低":   (0.10, 1.00),
+    "中":   (0.10, 1.00),
+    "高":   (0.10, 1.00),
+    "超高": (0.10, 1.00),
 }
-DEFAULT_QUALITY = "中"          # 【改动】默认降为中档，避免 0.1mm 起步就卡 1 分钟
+DEFAULT_QUALITY = "高"
 QUALITY_ORDER = ["低", "中", "高", "超高"]
-MAX_FACES = 3_000_000           # 【改动】面数上限保护，超过则中止并提示降档
+MAX_FACES = 8_000_000           # 【改动】放宽上限，0.1mm 的 583万面需通过
+
+# 【新增】网格磁盘缓存：三角化一次存盘，之后秒开
+CACHE_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+                         "Programs", "STPViewer", "cache")
 
 
 @dataclass
@@ -46,6 +50,7 @@ class LoadResult:
     exact_shape: Optional[object] = None   # OCCT TopoDS_Shape（STEP 才有）
     exact_solid: bool = False              # B-rep 是否为封闭实体
     quality: str = DEFAULT_QUALITY         # 【新增】三角化分辨率档位（STEP 有效）
+    from_cache: bool = False               # 【新增】网格是否来自缓存
 
     @property
     def size_xyz(self) -> np.ndarray:
@@ -104,6 +109,42 @@ def _load_stl(path: str) -> LoadResult:
 
 
 # ------------------------------------------------------------------ STEP
+def _cache_key(path: str, quality: str) -> str:
+    """【新增】缓存 key：绝对路径 + 文件大小 + 修改时间 + 精度。"""
+    import hashlib
+    st = os.stat(path)
+    raw = f"{os.path.abspath(path)}|{st.st_size}|{int(st.st_mtime)}|{quality}"
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+
+def _cache_load(path: str, quality: str):
+    """【新增】读缓存，返回 (vertices, faces) 或 None。"""
+    try:
+        import glob
+        hits = glob.glob(os.path.join(CACHE_DIR, _cache_key(path, quality) + "*.npz"))
+        if not hits:
+            return None
+        with np.load(hits[0]) as d:
+            return d["v"], d["f"]
+    except Exception:
+        return None
+
+
+def _cache_save(path: str, quality: str, v: np.ndarray, f: np.ndarray):
+    """【新增】写缓存。原子写入避免半文件。"""
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        key = _cache_key(path, quality)
+        tmp = os.path.join(CACHE_DIR, key + ".tmp.npz")
+        final = os.path.join(CACHE_DIR, key + ".npz")
+        np.savez_compressed(tmp, v=v, f=f)
+        if os.path.exists(final):
+            os.remove(final)
+        os.rename(tmp, final)
+    except Exception:
+        pass
+
+
 def _mesh_shape(shape: object, lin_defl: float, ang_defl: float) -> Tuple[np.ndarray, np.ndarray]:
     """OCCT TopoDS_Shape -> (vertices, faces)。先对已存在网格重建。"""
     from OCP.BRepMesh import BRepMesh_IncrementalMesh
@@ -203,7 +244,16 @@ def _load_step(path: str, quality: str = DEFAULT_QUALITY) -> LoadResult:
     # 【改动】三角化精度改为按档位计算（原固定 diag/200 + 0.4rad，曲面明显变形）
     lin_defl, ang_defl = _step_deflections(shape, quality)
 
-    v, f = _mesh_shape(shape, lin_defl, ang_defl)
+    # 【改动】先查缓存，命中则跳过 193 秒的三角化
+    cached = _cache_load(path, quality)
+    if cached is not None:
+        v, f = cached
+        from_cache = True
+    else:
+        v, f = _mesh_shape(shape, lin_defl, ang_defl)
+        if len(v) > 0 and len(f) > 0:
+            _cache_save(path, quality, v, f)   # 【新增】算完写缓存
+        from_cache = False
     if len(v) == 0 or len(f) == 0:
         raise _fmt_error("STEP", path, "几何为空或三角化失败，文件可能不含实体面")
     # 【改动】面数保护：0.01mm 档会产生数亿面，超过上限直接拒绝，避免卡死
@@ -217,7 +267,7 @@ def _load_step(path: str, quality: str = DEFAULT_QUALITY) -> LoadResult:
         vertices=v, faces=f,
         bbox_min=v.min(axis=0), bbox_max=v.max(axis=0),
         exact_shape=shape, exact_solid=exact_solid,
-        quality=quality,
+        quality=quality, from_cache=from_cache,
         _mesh_watertight=(is_shell or is_solid),
     )
 
@@ -229,7 +279,15 @@ def remesh_step(result: LoadResult, quality: str) -> LoadResult:
     if result.exact_shape is None:
         raise ValueError("仅 STEP 模型支持分辨率切换")
     lin_defl, ang_defl = _step_deflections(result.exact_shape, quality)
-    v, f = _mesh_shape(result.exact_shape, lin_defl, ang_defl)
+    cached = _cache_load(result.path, quality)   # 【改动】切档也查缓存
+    if cached is not None:
+        v, f = cached
+        from_cache = True
+    else:
+        v, f = _mesh_shape(result.exact_shape, lin_defl, ang_defl)
+        if len(v) > 0 and len(f) > 0:
+            _cache_save(result.path, quality, v, f)
+        from_cache = False
     if len(v) == 0 or len(f) == 0:
         raise ValueError(f"档位「{quality}」三角化失败")
     # 【改动】面数保护
@@ -242,7 +300,7 @@ def remesh_step(result: LoadResult, quality: str) -> LoadResult:
         vertices=v, faces=f,
         bbox_min=v.min(axis=0), bbox_max=v.max(axis=0),
         exact_shape=result.exact_shape, exact_solid=result.exact_solid,
-        quality=quality,
+        quality=quality, from_cache=from_cache,
         _mesh_watertight=result.is_watertight_mesh,
     )
 
