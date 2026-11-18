@@ -27,10 +27,9 @@ from vispy.scene.visuals import Mesh, Text, Line
 from vispy.scene.cameras import TurntableCamera
 
 from model_loader import load_model, remesh_step, LoadResult, QUALITY_ORDER, DEFAULT_QUALITY
-# 【改动】STEP 默认「中」档（线性0.05mm/角0.75°）。
-# 绝对精度下「高」0.01mm 会产生数亿面不可行，「低」0.1mm 也要 62 秒。
-# 用户可按 1/2/3/4 切换（低0.1mm / 中0.05mm / 高0.01mm / 超高0.005mm）
-STEP_LOAD_QUALITY = "中"
+# 【改动】所有档位统一 0.1mm/1°（用户要求不降精度）。
+# 首次加载约 193 秒，靠磁盘缓存把后续加载降到秒级。
+STEP_LOAD_QUALITY = "高"
 from analysis import bounding_box, estimate_thickness, ThicknessResult
 
 BG = (247/255, 250/255, 252/255, 1.0)
@@ -47,12 +46,8 @@ COLOR_PRESETS = [
 
 # 【改动】档位→绝对精度说明（模块级函数，放在类定义之前）
 def _quality_desc(q: str) -> str:
-    from model_loader import QUALITY_PRESETS
-    lin, ang = QUALITY_PRESETS.get(q, (None, 0.20))
-    if lin is None:
-        div = {"低": 200, "中": 500}.get(q, 500)
-        return f"相对1/{div}/角{ang:g}rad"
-    return f"绝对{lin}mm/角{ang:g}°"
+    # 【改动】所有档位统一 0.1mm/1°
+    return "0.1mm/1°"
 
 
 class ViewerCanvas(scene.SceneCanvas):
@@ -95,7 +90,7 @@ class ViewerCanvas(scene.SceneCanvas):
             # 【改动】帮助文字放到第5行（y=150），避开顶部4行信息。
             #   VisPy Text parent=scene 时 pos 是像素、原点在窗口中心上方，
             #   归一化坐标无效，故统一用像素正值与信息行错开。
-            pos=(14, 150), color=(0.45, 0.48, 0.52), font_size=11,
+            pos=(14, 175), color=(0.45, 0.48, 0.52), font_size=11,
             face=CN_FONT,
             anchor_x="left", anchor_y="top", parent=self.scene,
         )
@@ -119,7 +114,9 @@ class ViewerCanvas(scene.SceneCanvas):
             f"文件：{os.path.basename(r.path)}",
             f"格式：{r.format}   三角面：{len(r.faces):,}   档位：{q}（{_quality_desc(q)}）",
             f"包围盒：{sz[0]:.2f} × {sz[1]:.2f} × {sz[2]:.2f} mm（长×宽×高）",
-            th_line,
+            # 【改动】缓存状态放最前，缩短壁厚行避免超宽重叠
+            ("[缓存秒开] " if r.from_cache else "[已算并缓存] ")
+            + f"壁厚{th.label} 最小{th.min:.2f}/中位{th.median:.2f}/最大{th.max:.2f}mm",
         ]
         for t, line in zip(self._info_lines, lines):
             t.color = (0.15, 0.18, 0.22)
